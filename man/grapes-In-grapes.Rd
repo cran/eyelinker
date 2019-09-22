@@ -7,23 +7,23 @@
 x \%In\% Intv
 }
 \arguments{
-\item{x}{a set of numeric values}
+\item{x}{A set of numeric values}
 
-\item{Intv}{a set of intervals, defined by a two-column matrix of endpoints or an Intervals object}
+\item{Intv}{A set of intervals, defined by a two-column matrix of endpoints or an Intervals
+object}
 }
 \value{
-a vector of logicals, which are true if x[i] belongs to any of the intervals in the set.
+A vector of logicals, which are true if x[i] belongs to any of the intervals in the set.
 }
 \description{
-Wrapper around distance_to_nearest from the Intervals package.
+Wrapper around \code{\link[intervals]{distance_to_nearest}} from the "intervals" package.
 }
 \examples{
-start <- c(0,1,2)
-end <- c(.5,1.3,3)
-intv <- cbind(start,end) #The first interval is 0-0.5, second is 1-1.3, etc. 
-c(0,.6,1.5,3) \%In\% intv
+start <- c(0, 1, 2)
+end <- c(.5, 1.3, 3)
+intv <- cbind(start, end) # The first interval is 0-0.5, second is 1-1.3, etc.
+c(0, .6, 1.5, 3) \%In\% intv
 }
 \author{
 Simon Barthelme
 }
-

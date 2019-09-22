@@ -7,26 +7,28 @@
 whichInterval(x, Intv)
 }
 \arguments{
-\item{x}{a set of numeric values}
+\item{x}{A set of numeric values}
 
-\item{Intv}{a two-column matrix or an object of class Intervals}
+\item{Intv}{A two-column matrix or an object of class Intervals}
 }
 \value{
-for each value in x: if x[i] in in the set of intervals, the index of the corresponding interval(s), NA if no interval contains x[i]
+For each value in x: if x[i] in in the set of intervals, the index of the corresponding
+  interval(s), NA if no interval contains x[i]
 }
 \description{
-This utility function is a replacement for findIntervals that works even when the set of intervals is discontinuous. It wraps "which_nearest" from the intervals package.
+This utility function is a replacement for \code{findInterval} that works even when the set of
+intervals is discontinuous. It wraps \code{\link[intervals]{which_nearest}} from the
+"intervals" package.
 }
 \examples{
-start <- c(0,1,2)
-end <- c(.5,1.3,3)
-intv <- cbind(start,end) #The first interval is 0-0.5, second is 1-1.3, etc. 
-whichInterval(seq(0,3,l=10),intv)
+start <- c(0, 1, 2)
+end <- c(.5, 1.3, 3)
+intv <- cbind(start, end) # The first interval is 0-0.5, second is 1-1.3, etc.
+whichInterval(seq(0, 3, l = 10), intv)
+}
+\seealso{
+\%In\%
 }
 \author{
 Simon Barthelme
 }
-\seealso{
-`%In%`
-}
-

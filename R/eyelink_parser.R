@@ -1,302 +1,545 @@
+#' Read EyeLink ASC Files
+#'
+#' Imports data from EyeLink ASC files into (relatively) tidy data frames for analysis and
+#' visualization. Event data and/or raw sample data from the files can be imported, along with
+#' information about the tracker hardware and configuration. All data is divided into numbered
+#' blocks using the "START" and "END" messages in the ASC file.
+#'
+#' ASC files can contain anywhere between 125 to 2000 rows of samples for every second of recording,
+#' meaning that the resulting files can be very large (1.2 million rows of samples for 20 minutes at
+#' 1000Hz). As a result, importing some ASC files can be slow, and the resulting data frames can
+#' take up 100's of MB of memory. To speed up import and greatly reduce memory load, you can choose
+#' to ignore raw samples and only import events by setting the samples parameter to \code{FALSE}.
+#'
+#' This function returns a list containing the following possible data frames: \describe{
+#'   \item{\code{raw}}{Raw sample data}
+#'   \item{\code{sacc}}{Saccade end events}
+#'   \item{\code{fix}}{Fixation end events}
+#'   \item{\code{blinks}}{Blink end events}
+#'   \item{\code{msg}}{Messages sent or received by the tracker}
+#'   \item{\code{input}}{Input port (TTL) events}
+#'   \item{\code{button}}{Button box / gamepad events}
+#'   \item{\code{info}}{Tracker settings/configuration metadata}
+#' }
+#' The names of the columns in these data frames correspond to column names given in the ASC
+#' section of the EyeLink 1000 User's Guide.
+#'
+#' Note that this function cannot import EDFs directly; they must be converted to plain-text ASC
+#' using the edf2asc utility before importing.
+#'
+#' @usage
+#' read.asc(fname, samples = TRUE, events = TRUE, parse_all = FALSE)
+#'
+#' @param fname \code{character} vector indicating the name of the .asc file to import.
+#' @param samples \code{logical} indicating whether raw sample data should be imported. Defaults
+#'   to \code{TRUE}.
+#' @param events \code{logical} indicating whether event data (e.g. saccades, blinks, messages,
+#'   etc.) should be imported. Defaults to \code{TRUE}.
+#' @param parse_all \code{logical} indicating whether samples/events not within START/END
+#'   blocks should be parsed. Defaults to \code{FALSE}.
+#' @return A \code{list} of \code{\link[tibble]{tibble}}s containing data from the .asc file.
+#'
+#' @author Simon Barthelme & Austin Hurst
+#' @examples
+#' # Example file from SR research that ships with the package
+#' fpath <- system.file("extdata/mono500.asc.gz", package = "eyelinker")
+#' dat <- read.asc(fpath)
+#' plot(dat$raw$time, dat$raw$xp, xlab = "Time (ms)", ylab = "Eye position along x-axis (pix)")
+#'
+#' @export read.asc
 
-##' Read EyeLink ASC file
-##'
-##' ASC files contain raw data from EyeLink eyetrackers (they're ASCII versions of the raw binaries which are themselves in EDF format). 
-##' This utility tries to parse the data into something that's usable in R. Please read the EyeLink manual before using it for any serious work, very few checks are done to see if the output makes sense. 
-##' read.asc will return data frames containing a "raw" signal as well as event series. Events are either system signals (triggers etc.), which are stored in the "msg" field, or correspond to the Eyelink's interpretation of the eye movement traces (fixations, saccades, blinks). 
-##' ASC files are divided into blocks signaled by START and END signals. The block structure is reflected in the "block" field of the dataframes.
-##' If all you have is an EDF file, you need to convert it first using edf2asc from the Eyelink toolbox.
-##' The names of the various columns are the same as the ones used in the Eyelink manual, with two exceptions. "cr.info", which doesn't have a name in the manual, gives you information about corneal reflection tracking. If all goes well its value is just "..."
-##' "remote.info" gives you information about the state of the remote setup, if applicable. It should also be just a bunch of ... values. Refer to the manual for details. 
-##' @title Read EyeLink ASC file
-##' @param fname file name
-##' @return a list with components
-##' raw: raw eye positions, velocities, resolution, etc.
-##' msg: messages (no attempt is made to parse them)
-##' fix: fixations
-##' blinks: blinks
-##' sacc: saccades
-##' info: meta-data
-##' 
-##' @author Simon Barthelme
-##' @examples
-##' #Example file from SR research that ships with the package
-##' fpath <- system.file("extdata/mono500.asc.gz",package="eyelinker")
-##' dat <- read.asc(fpath)
-##' plot(dat$raw$time,dat$raw$xp,xlab="Time (ms)",ylab="Eye position along x axis (pix)")
-##' @export
-read.asc <- function(fname)
-    {
-        inp <- readLines(fname)
+# TODO:
+#  - Check for multiple unique RECCFG lines, throw an error if so (can this even happen?)
+#  - Add parsing of calibration & drift correct info
+#  - Add function for reading multiple ASCs at once?
+#  - Add function for parsing button samples? They're stored in a weird format
 
-        #Convert to ASCII
-        inp <- stri_enc_toascii(inp)
-        
-        #Filter out empty lines, comments, trailing whitespace
-        inp <- str_select(inp,"^\\w*$",reverse=TRUE) %>% str_select("^#",reverse=TRUE) %>% str_select("^/",reverse=TRUE) %>% str_trim(side="right")
 
-        #Read meta-data from the "SAMPLES" line
-        info <- getInfo(inp)
+read.asc <- function(fname, samples = TRUE, events = TRUE, parse_all = FALSE) {
 
-        #Just to spite us, there's an inconsistency in how HTARG info is encoded (missing tab)
-        #We fix it if necessary
-        if (info$htarg)
-        {
-            inp <- str_replace_all(inp,fixed("............."),fixed("\t............."))
+    inp <- read_lines(fname, progress = FALSE)
+
+    # Convert to ASCII
+    inp <- stri_enc_toascii(inp)
+
+    # Get strings prior to first tab for each line for faster string matching
+    inp_first <- stri_split_regex(inp, "\\s", 2, simplify = TRUE)[, 1]
+
+    # Check if any actual data recorded in file
+    starts <- inp_first == "START"
+    if (!any(starts)) {
+        stop("No samples or events found in .asc file.")
+    }
+
+    # Read metadata from file before processing
+    is_raw <- str_detect(inp_first, "^[0-9]")
+    info <- get_info(inp[!is_raw], inp_first[!is_raw])
+
+    # Do some extra processing/sanitizing if there's HTARG info in the file
+    if (info$htarg) {
+        ret <- handle_htarg(inp, info, is_raw)
+        inp <- ret[[1]]
+        info <- ret[[2]]
+    }
+
+    # Find blocks and mark lines between block ENDs and next block STARTs
+    dividers <- c(which(starts), length(inp))
+    block <- cumsum(starts)
+    for (i in 2:length(dividers)) {
+        start <- dividers[i - 1]
+        end <- dividers[i]
+        endline <- which(inp_first[start:end] == "END") + start - 1
+        if (length(endline) > 0 && endline < end) {
+            block[endline[1]:end] <- block[endline[1]:end] + 0.5
         }
-        
-        #"Header" isn't strict, it's whatever comes before the first "START" line
-        init <- str_detect(inp,"^START") %>% which %>% min
-        header <- inp[1:(init-1)]
-        inp <- inp[init:length(inp)]
-
-        
-        #Find blocks
-        bl.start <- str_detect(inp,"^START")%>%which
-        bl.end <- str_detect(inp,"^END")%>%which
-        nBlocks <- length(bl.start)
-        blocks <- llply(1:nBlocks,function(indB) process.block(inp[bl.start[indB]:bl.end[indB]],info))
-        collect <- function(vname)
-            {
-                valid <- Filter(function(ind) !is.null(blocks[[ind]][[vname]]),1:length(blocks))
-                ldply(valid,function(ind) mutate(blocks[[ind]][[vname]],block=ind))
-            }
-        
-        list(raw=collect('raw'),msg=collect('msg'),sacc=collect('sacc'),fix=collect('fix'),blinks=collect('blinks'),info=info)
     }
 
-
-
-process.block.header <- function(blk)
-    {
-        endh <- str_detect(blk,'^SAMPLES') %>% which
-        if (length(endh)!=1) stop('non-standard block header')
-        hd <-blk[1:endh]
-        #Parse  the EVENTS line 
-        ev <- str_select(hd,"^EVENTS")
-        regex.num <- "([-+]?[0-9]*\\.?[0-9]+)"
-        srate <-str_match(ev,paste0("RATE\t",regex.num))[,2] %>% as.numeric
-        tracking <-str_match(ev,"TRACKING\t(\\w+)")[,2]
-        filter <- str_match(ev,"FILTER\t(\\d)")[,2] %>% as.numeric
-        events <- list(left=str_detect(ev,fixed("LEFT")),
-                       right=str_detect(ev,fixed("RIGHT")),
-                       res=str_detect(ev,fixed(" RES ")),
-                       tracking=tracking,
-                       srate=srate,
-                       filter=filter)
-
-        #Now do the same thing for the SAMPLES line
-        sm <- str_select(hd,"^SAMPLES")
-        
-        srate <-str_match(sm,paste0("RATE\t",regex.num))[,2] %>% as.numeric
-        tracking <-str_match(sm,"TRACKING\t(\\w+)")[,2]
-        filter <- str_match(sm,"FILTER\t(\\d)")[,2] %>% as.numeric
-
-        samples <- list(left=str_detect(sm,fixed("LEFT")),
-                        right=str_detect(sm,fixed("RIGHT")),
-                        res=str_detect(ev,fixed(" RES ")),
-                        vel=str_detect(ev,fixed(" VEL ")),
-                        tracking=tracking,
-                        srate=srate,
-                        filter=filter)
-        
-        list(events=events,samples=samples,the.rest=blk[-(1:endh)])
+    # Unless parsing all input, drop any lines not within a block
+    block[1:dividers[1]] <- block[1:dividers[1]] + 0.5
+    if (!parse_all) {
+        in_block <- block %% 1 == 0
+        inp <- inp[in_block]
+        inp_first <- inp_first[in_block]
+        is_raw <- is_raw[in_block]
+        block <- block[in_block]
     }
 
-#Turn a list of strings with tab-separated field into a data.frame
-tsv2df <- function(dat)
-    {
-        if (length(dat)==1)
-            {
-                dat <- paste0(dat,"\n")
-            }
-        else
-            {
-                dat <- paste0(dat,collapse="\n")
-            }
-        out <- read_tsv(dat,col_names=FALSE)
-        if (!(is.null(attr(suppressWarnings(out), "problems")))) browser()
-        out
+    # Initialize list of data output and process different data types
+    out <- list()
+    if (samples) {
+        out$raw <- process_raw(inp[is_raw], block[is_raw], info)
     }
+    if (events) {
+        is_sacc <- inp_first == "ESACC"
+        out$sacc <- process_saccades(inp[is_sacc], block[is_sacc], info)
 
-parse.saccades <- function(evt,events)
-    {
-        #Focus only on EFIX events, they contain all the info
-        esac <- str_select(evt,"^ESAC") %>% str_replace("ESACC\\s+(R|L)","\\1\t") %>% str_replace_all("\t\\s+","\t")  
-        #Missing data
-        esac <- str_replace_all(esac,"\\s\\.","\tNA")
+        is_fix <- inp_first == "EFIX"
+        out$fix <- process_fixations(inp[is_fix], block[is_fix], info)
 
-        df <- str_split(esac,"\n") %>% ldply(function(v) { str_split(v,"\\t")[[1]] })
-        #Get a data.frame
-        if (ncol(df)==10)
-            {
-                #ESACC  <eye>  <stime>  <etime>  <dur> <sxp>  <syp>  <exp>  <eyp>  <ampl> <pv> 
-                names(df) <- c("eye","stime","etime","dur","sxp","syp","exp","eyp","ampl","pv")
-                
-            }
-        else if (ncol(df)==12)
-            {
-                names(df) <- c("eye","stime","etime","dur","sxp","syp","exp","eyp","ampl","pv","xr","yr")
-            }
-        
-        dfc <- suppressWarnings(llply(as.list(df)[-1],as.numeric) %>% as.data.frame )
-        dfc$eye <- df$eye
-        dfc
+        is_blink <- inp_first == "EBLINK"
+        out$blinks <- process_blinks(inp[is_blink], block[is_blink])
+
+        is_msg <- inp_first == "MSG"
+        out$msg <- process_messages(inp[is_msg], block[is_msg])
+
+        is_input <- inp_first == "INPUT"
+        out$input <- process_input(inp[is_input], block[is_input])
+
+        is_button <- inp_first == "BUTTON"
+        out$button <- process_buttons(inp[is_button], block[is_button])
     }
+    info$tracking <- NULL # needed for parsing, but otherwise redundant with CR
+    out$info <- info
+
+    out
+}
 
 
+process_raw <- function(raw, blocks, info) {
 
-parse.blinks <- function(evt,events)
-    {
-        eblk <- str_select(evt,"^EBLINK") %>% str_replace("EBLINK\\s+(R|L)","\\1\t") %>% str_replace_all("\t\\s+","\t") 
-        #Get a data.frame
-        #eblk <- eblk %>% tsv2df
-        df <- str_split(eblk,"\n") %>% ldply(function(v) { str_split(v,"\\t")[[1]] })
-        names(df) <- c("eye","stime","etime","dur")
-        dfc <- suppressWarnings(llply(as.list(df)[-1],as.numeric) %>% as.data.frame )
-        dfc$eye <- df$eye
-        dfc
-    }
+    if (length(raw) == 0) {
 
+        # If no sample data in file, create empty raw tibble w/ all applicable columns
+        raw <- c("", "")
+        blocks <- integer(0)
+        colnames <- get_raw_header(info)
+        coltypes <- get_coltypes(colnames, float_time = FALSE)
 
+    } else {
 
-parse.fixations <- function(evt,events)
-    {
-        #Focus only on EFIX events, they contain all the info
-        efix <- str_select(evt,"^EFIX") %>% str_replace("EFIX\\s+(R|L)","\\1\t") %>% str_replace_all("\t\\s+","\t") 
-        #Get a data.frame
-                                        #efix <- efix %>% tsv2df
-        df <- str_split(efix,"\n") %>% ldply(function(v) { str_split(v,"\\t")[[1]] })
-        if (ncol(df)==7)
-            {
-                names(df) <- c("eye","stime","etime","dur","axp","ayp","aps")
-            }
-        else if (ncol(df)==9)
-            {
-                names(df) <- c("eye","stime","etime","dur","axp","ayp","aps","xr","yr")
-            }
-        dfc <- suppressWarnings(llply(as.list(df)[-1],as.numeric) %>% as.data.frame )
-        dfc$eye <- df$eye
-        dfc
-    }
+        # Determine if timestamps stored as floats (edf2asc option -ftime, useful for 2000 Hz)
+        float_time <- is_float(strsplit(raw[1], "\\s+")[[1]][1])
 
-#evt is raw text, events is a structure with meta-data from the START field
-process.events <- function(evt,events)
-    {
-        #Messages
-        if (any(str_detect(evt,"^MSG")))
-        {
-            msg <- str_select(evt,"^MSG") %>% str_sub(start=5) %>% str_match("(\\d+)\\s(.*)") 
-            msg <- data.frame(time=as.numeric(msg[,2]),text=msg[,3])
+        # Generate column names and types based in info in header
+        colnames <- get_raw_header(info)
+        coltypes <- get_coltypes(colnames, float_time)
+
+        # Discard any rows with missing columns (usually rows where eye is missing)
+        row_length <- stri_count_fixed(raw, "\t") + 1
+        max_length <- max(row_length)
+        raw <- raw[row_length == max_length]
+        blocks <- blocks[row_length == max_length]
+
+        # Verify that generated columns match up with actual maximum row length
+        length_diff <- max_length - length(colnames)
+        if (length_diff > 0) {
+            warning(paste(
+                "Unknown columns in raw data.",
+                "Assuming first one is time, please check the others"
+            ))
+            colnames <- c("time", paste0("X", 1:(max_length - 1)))
+            coltypes <- paste0(c("i", rep("?", max_length - 1)), collapse = "")
         }
-        else
-        {
-            msg <- c()
+    }
+
+    # Process raw sample data using readr
+    if (length(raw) == 1) raw <- c(raw, "")
+    raw_df <- read_tsv(raw, col_names = colnames, col_types = coltypes, na = ".", progress = FALSE)
+    if (info$tracking & !info$cr) {
+        raw_df$cr.info <- NULL  # Drop CR column when not actually used
+    }
+
+    # Append block numbers to beginning of data frame
+    raw_df <- add_column(raw_df, block = blocks, .before = 1)
+
+    # Replace missing pupil data (zeros) with NAs
+    if (!("X1" %in% names(raw_df))) {
+        if (info$mono) {
+            raw_df$ps[raw_df$ps == 0] <- NA
+        } else {
+            raw_df$psl[raw_df$psl == 0] <- NA
+            raw_df$psr[raw_df$psr == 0] <- NA
         }
-        
-        fix <- if (str_detect(evt,"^EFIX") %>% any) parse.fixations(evt,events) else NULL
-        sacc <- if (str_detect(evt,"^ESAC") %>% any) parse.saccades(evt,events) else NULL
-        blinks <- if (str_detect(evt,"^SBLI") %>% any) parse.blinks(evt,events) else NULL
-        list(fix=fix,sacc=sacc,msg=msg,blinks=blinks)
     }
 
+    raw_df
+}
 
-#A block is whatever one finds between a START and an END event
-process.block <- function(blk,info)
-    {
-        hd <- process.block.header(blk)
-        blk <- hd$the.rest
-        raw.colnames <- coln.raw(info)
-        
-        #Get the raw data (lines beginning with a number)
-        which.raw <- str_detect(blk,'^\\d')
-        raw <- blk[which.raw] %>% str_select('^\\d') # %>% str_replace(fixed("\t..."),"")
-#        raw <- str_replace(raw,"\\.+$","")
 
-        #Filter out all the lines where eye position is missing, they're pointless and stored in an inconsistent manner
-        iscrap <- str_detect(raw,"^\\d+\\s+\\.")
-        crap <- raw[iscrap]
-        raw <- raw[!iscrap]
+process_events <- function(rows, blocks, colnames) {
 
-        #Turn into data.frame
-        raw <- tsv2df(raw)
-        names(raw) <- raw.colnames
-        nCol <- ncol(raw)
-        if (any(iscrap))
-            {
-                crapmat <- matrix(NA,length(crap),nCol)
-                crapmat[,1] <- as.numeric(str_match(crap,"^(\\d+)")[,1])
-                crapmat <- as.data.frame(crapmat)
-                names(crapmat) <- raw.colnames
-                raw <- rbind(raw,crapmat)
-                raw <- raw[order(raw$time),]
-            }
-        
-        #The events (lines not beginning with a number)
-        evt <- blk[!which.raw]
-        res <- process.events(evt,hd$events)
-        res$raw <- raw
-        res$sampling.rate <- hd$events$srate
-        res$left.eye <- hd$events$left
-        res$right.eye <- hd$events$right
-        res
+    # If no data, create empty tibble w/ all cols and types
+    if (length(rows) == 0) {
+        rows <- c("", "")
+        blocks <- integer(0)
     }
 
-#Read some meta-data from the SAMPLES line
-#Inspired by similar code from cili library by Ben Acland
-getInfo <- function(inp)
-{
-    info <- list()
-                                        #Find the "SAMPLES" line
-    l <- str_select(inp,"^SAMPLES")[[1]]
-    info$velocity <- str_detect(l,fixed("VEL"))
-    info$resolution <- str_detect(l,fixed("RES"))
-    #Even in remote setups, the target information may not be recorded 
-    #e.g.: binoRemote250.asc
-    #so we make sure it actually is
-    info$htarg <- FALSE
-    if (str_detect(l,fixed("HTARG")))
-    {
-        info$htarg <- str_detect(inp,fixed(".............")) %>% any
+    # Parse data, dropping useless first columm
+    if (length(rows) == 1) rows <- c(rows, "")
+    colnames <- c('type', colnames) # first col is event type, which we drop later
+    coltypes <- get_coltypes(colnames)
+    df <- read_table2(rows, col_names = colnames, col_types = coltypes, na = ".")[, -1]
+
+    # Move eye col to end & make factor, append block numbers to beginning of data frame
+    if ("eye" %in% colnames) {
+        df <- df[, c(2:ncol(df), 1)]
+        df$eye <- factor(df$eye, levels = c("L", "R"))
     }
-    info$input <- str_detect(l,fixed("INPUT"))
-    info$left <- str_detect(l,fixed("LEFT"))
-    info$right <- str_detect(l,fixed("RIGHT"))
-    info$cr <- str_detect(l,fixed("CR"))
-    info$mono <- !(info$right & info$left)
+    df <- add_column(df, block = blocks, .before = 1)
+
+    df
+}
+
+
+process_saccades <- function(saccades, blocks, info) {
+
+    sacc_df <- process_events(saccades, blocks, get_sacc_header(info))
+
+    # Set amplitudes for any saccades missing start/end coords to NAs because they're wonky
+    ampl_cols <- which(str_detect(names(sacc_df), "ampl"))
+    partial <- is.na(sacc_df$sxp) | is.na(sacc_df$exp)
+    if (any(partial)) sacc_df[partial, ampl_cols] <- NA
+
+    sacc_df
+}
+
+
+process_fixations <- function(fixations, blocks, info) {
+    process_events(fixations, blocks, get_fix_header(info))
+}
+
+
+process_blinks <- function(blinks, blocks) {
+    process_events(blinks, blocks, c("eye", "stime", "etime", "dur"))
+}
+
+
+process_messages <- function(msgs, blocks) {
+
+    # Process messages from tracker (needs stringi import)
+    msg_mat <- stri_split_fixed(msgs, " ", 2, simplify = TRUE)
+    msg_mat[, 1] <- substring(msg_mat[, 1], first = 5)
+    msg_df <- as_tibble(msg_mat, .name_repair = ~ c("time", "text"))
+    msg_df$time <- as.numeric(msg_df$time)
+
+    # Append block numbers to beginning of data frame
+    if (length(blocks) == 0) blocks <- integer(0)
+    msg_df <- add_column(msg_df, block = blocks, .before = 1)
+
+    msg_df
+}
+
+
+process_input <- function(input, blocks) {
+    process_events(input, blocks, c("time", "value"))
+}
+
+
+process_buttons <- function(button, blocks) {
+    process_events(button, blocks, c("time", "button", "state"))
+}
+
+
+handle_htarg <- function(inp, info, is_raw) {
+
+    if (any(is_raw)) {
+        # In some cases HTARGET is in header but not samples, so we verify it's really there
+        first_sample <- inp[is_raw][1]
+        htarg_regex <- get_htarg_regex(!info$mono)
+        info$htarg <- str_detect(first_sample, htarg_regex)
+
+        if (info$htarg) {
+            # Sometimes remote.info has no tab separating it from previous column, so we have to
+            # insert one ourselves for read_tsv to work
+            htarg_notab_regex <- paste0("(.*[0-9\\.])\\s(", htarg_regex, ")$")
+            has_htarg <- str_detect(inp[is_raw], htarg_notab_regex)
+            split_pos <- ifelse(info$mono, -14, -18) # which character to replace w/ tab
+            str_sub(inp[is_raw][has_htarg], split_pos, split_pos) <- "\t"
+        }
+    }
+
+    list(inp, info)
+}
+
+
+# Gets useful metadata about the tracker setup & settings from the file
+get_info <- function(nonsample, firstcol) {
+
+    header <- nonsample[firstcol == "**"]
+    info <- data.frame(
+        date = NA, model = NA, version = NA, sample.rate = NA, cr = NA,
+        left = NA, right = NA, mono = NA, screen.x = NA, screen.y = NA, mount = NA,
+        filter.level = NA, sample.dtype = NA, event.dtype = NA, pupil.dtype = NA,
+        velocity = NA, resolution = NA, htarg = NA, input = NA, buttons = NA,
+        tracking = NA
+    )
+
+    # Get date/time of recording from file
+    info$date <- as.POSIXct(from_header(header, "DATE"), format = "%a %b %d %H:%M:%S %Y")
+
+    # Get tracker model/version info
+    version_info <- get_model(header)
+    info$model <- version_info[1]
+    info$version <- version_info[2]
+
+    # Get tracker mount info
+    elclcfg <- nonsample[str_detect(nonsample, fixed("ELCLCFG"))]
+    if (length(elclcfg) > 0) {
+        info$mount <- get_mount(gsub('.* ELCLCFG\\s+(.*)', '\\1', elclcfg[1]))
+    }
+
+    # Get display size from file
+    screen_res <- get_resolution(nonsample)
+    info$screen.x <- screen_res[1]
+    info$screen.y <- screen_res[2]
+
+    # Get pupil size data type (area or diameter)
+    pupil_config <- nonsample[firstcol == "PUPIL"]
+    if (length(pupil_config) > 0) {
+        info$pupil.dtype <- strsplit(tail(pupil_config, 1), "\\s+")[[1]][2]
+    }
+
+    # Find the samples and events config lines in the non-sample input, get data types
+    events_config <- nonsample[firstcol == "EVENTS"]
+    samples_config <- nonsample[firstcol == "SAMPLES"]
+    if (length(events_config) > 0) {
+        info$event.dtype <- strsplit(tail(events_config, 1), "\\s+")[[1]][2]
+    }
+    if (length(samples_config) > 0) {
+        info$sample.dtype <- strsplit(tail(samples_config, 1), "\\s+")[[1]][2]
+    }
+
+    # Get last config line in file (preferring sample config) and extract remaining info
+    config <- tail(c(events_config, samples_config), 1)
+    if (length(config) > 0) {
+        info$sample.rate <- ifelse(
+            grepl('RATE', config),
+            as.numeric(gsub('.*RATE\\s+([0-9]+\\.[0-9]+).*', '\\1', config)),
+            NA
+        )
+        info$tracking <- grepl('\tTRACKING', config)
+        info$cr <- grepl("\tCR", config)
+        info$filter.level <- ifelse(
+            grepl('FILTER', config),
+            as.numeric(gsub('.*FILTER\\s+([0-9]).*', '\\1', config)),
+            NA
+        )
+        info$velocity <- grepl("\tVEL", config)
+        info$resolution <- grepl("\tRES", config)
+        info$htarg <- grepl("\tHTARG", config)
+        info$input <- grepl("\tINPUT", config)
+        info$buttons <- grepl("\tBUTTONS", config)
+        info$left <- grepl("\tLEFT", config)
+        info$right <- grepl("\tRIGHT", config)
+        info$mono <- !(info$right & info$left)
+    }
+
     info
 }
 
-#Column names for the raw data
-coln.raw <- function(info)
-{
-    eyev <- c("xp","yp","ps")
-    if (info$velocity)
-    {
-        eyev <- c(eyev,"xv","yv")
-    }
-    if (info$resolution)
-    {
-        eyev <- c(eyev,"xr","yr")
+
+# Extracts the value of a given field from the ASC header
+from_header <- function(header, field) {
+    s <- header[grepl(paste0("\\*\\* ", field), header)]
+    ifelse(length(s) > 0, gsub(paste0("\\*\\* ", field, ": (.*)"), "\\1", s), NA)
+}
+
+
+# Get the display resolution of the stimulus computer from the file
+get_resolution <- function(nonsample) {
+
+    res <- c(NA, NA)
+    for (pattern in c("DISPLAY_COORDS", "GAZE_COORDS", "RESOLUTION")) {
+        display_xy <- nonsample[str_detect(nonsample, fixed(pattern))]
+        if (length(display_xy) == 0) next
+        display_xy <- gsub(paste0(".* ", pattern, "\\s+(.*)"), "\\1", display_xy[1])
+        display_xy <- as.numeric(unlist(strsplit(display_xy, split = "\\s+")))
+        res <- c(display_xy[3] - display_xy[1] + 1, display_xy[4] - display_xy[2] + 1)
     }
 
-    if (!info$mono)
-    {
-        eyev <- c(paste0(eyev,"l"),paste0(eyev,"r"))
+    res
+}
+
+
+# Gets the model and software version of the tracker based on the header contents
+get_model <- function(header) {
+
+    version_str <- from_header(header, "VERSION")
+    version_str2 <- header[grepl("\\*\\* EYELINK II", header)]
+
+    if (is.na(version_str)) {
+        model <- "Unknown"
+        ver_num <- "Unknown"
+    } else if (version_str != 'EYELINK II 1') {
+        model <- "EyeLink I"
+        ver_num <- gsub('.* ([0-9]\\.[0-9]+) \\(.*', '\\1', version_str)
+    } else {
+        ver_num <- gsub('.* v(.*) [[:alpha:]].*', '\\1', version_str2)
+        model <- ifelse(as.numeric(ver_num) < 2.4,
+            'EyeLink II',
+            ifelse(as.numeric(ver_num) < 5,
+                'EyeLink 1000',
+                ifelse(as.numeric(ver_num) < 6,
+                    'EyeLink 1000 Plus',
+                    'EyeLink Portable Duo'
+                )
+            )
+        )
     }
 
-    #With corneal reflections we need an extra column
-    if (info$cr)
-    {
-        eyev <- c(eyev,"cr.info")
+    return(c(model, ver_num))
+}
+
+
+# Get info about the camera mount type for desk-mounted EyeLinks
+get_mount <- function(mount_str) {
+
+    # Older EyeLink 1000s may be missing "R" in table mount names, we add one if needed
+    if (str_detect(mount_str, "TABLE$")) {
+        mount_str <- paste0(mount_str, "R")
     }
 
-    #Three extra columns for remote set-up
-    if (info$htarg)
-    {
-        eyev <- c(eyev,"tx","ty","td","remote.info")
+    mounts <- list(
+        "MTABLER" = "Desktop / Monocular / Head Stabilized",
+        "BTABLER" = "Desktop / Binocular / Head Stabilized",
+        "RTABLER" = "Desktop / Monocular / Remote",
+        "RBTABLER" = "Desktop / Binocular / Remote",
+        "AMTABLER" = "Arm Mount / Monocular / Head Stabilized",
+        "ARTABLER" = "Arm Mount / Monocular / Remote",
+        "TOWER" = "Tower Mount / Monocular / Head Stabilized",
+        "BTOWER" = "Tower Mount / Binocular / Head Stabilized",
+        "MPRIM" = "Primate Mount / Monocular / Head Stabilized",
+        "BPRIM" = "Primate Mount / Binocular / Head Stabilized",
+        "MLRR" = "Long-Range Mount / Monocular / Head Stabilized",
+        "BLRR" = "Long-Range Mount / Binocular / Head Stabilized"
+    )
+    mount <- ifelse(mount_str %in% names(mounts), mounts[[mount_str]], NA)
+
+    mount
+}
+
+
+# Generate column names for raw sample data based on gathered info
+get_raw_header <- function(info) {
+
+    eyev <- c("xp", "yp", "ps")
+
+    if (!info$mono) {
+        eyev <- c(paste0(eyev, "l"), paste0(eyev, "r"))
     }
-    
-    
-    c("time",eyev)
+    if (info$velocity) {
+        if (info$mono) {
+            eyev <- c(eyev, "xv", "yv")
+        } else {
+            eyev <- c(eyev, "xvl", "yvl", "xvr", "yvr")
+        }
+    }
+    if (info$resolution) {
+        eyev <- c(eyev, "xr", "yr")
+    }
+    if (info$input) {
+        eyev <- c(eyev, "input")
+    }
+    if (info$buttons) {
+        eyev <- c(eyev, "buttons")
+    }
+    if (info$tracking) {
+        # If "TRACKING" in header, cr.info is present in samples whether or not CR actually used
+        eyev <- c(eyev, "cr.info")
+    }
+    if (info$htarg) {
+        # Three extra columns for remote set-up
+        eyev <- c(eyev, "tx", "ty", "td", "remote.info")
+    }
+
+    c("time", eyev)
+}
+
+
+get_event_header <- function(info, xy_cols) {
+
+    base <- c("eye", "stime", "etime", "dur")
+    # If event data type is HREF, events contain both HREF and GAZE data, so there are extra columns
+    if (info$event.dtype == "HREF") {
+        xy_cols <- c(paste0("href.", xy_cols), xy_cols)
+    }
+    if (info$resolution) {
+        xy_cols <- c(xy_cols, "xr", "yr")
+    }
+
+    c(base, xy_cols)
+}
+
+
+get_sacc_header <- function(info) {
+    get_event_header(info, c("sxp", "syp", "exp", "eyp", "ampl", "pv"))
+}
+
+
+get_fix_header <- function(info) {
+    get_event_header(info, c("axp", "ayp", "aps"))
+}
+
+
+# Gets column types from vector of column names, defaults to float unless otherwise specified
+get_coltypes <- function(colnames, float_time = TRUE) {
+
+    time_cols <- c("time", "stime", "etime", "dur")
+    chr_cols <- c("type", "eye", "cr.info", "remote.info")
+    int_cols <- c("button", "state", "value")
+    if (!float_time) int_cols <- c(int_cols, time_cols)
+
+    coltypes <- ifelse(
+        colnames %in% chr_cols, "c",
+        ifelse(colnames %in% int_cols, "i", "d")
+    )
+    coltypes <- paste0(coltypes, collapse = "")
+
+    coltypes
+}
+
+
+get_htarg_regex <- function(binocular) {
+
+    # HTARG info column consists of '.'s and/or letters (indicating problems)
+    htarg_errs <- ifelse(binocular, "MANCFTBLRTBLRTBLR", "MANCFTBLRTBLR")
+    htarg_errs <- strsplit(htarg_errs, split = "")[[1]]
+    htarg_regex <- paste0("(", htarg_errs, "|\\.)", collapse = "")
+
+    htarg_regex
+}
+
+
+is_float <- function(str) {
+    str_detect(str, "\\.")
 }

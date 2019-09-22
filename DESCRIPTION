@@ -1,20 +1,21 @@
 Package: eyelinker
 Type: Package
-Title: Load Raw Data from Eyelink Eye Trackers
-Version: 0.1
-Date: 2016-04-20
+Title: Import ASC Files from EyeLink Eye Trackers
+Version: 0.2.0
 Author: Simon Barthelme <simon.barthelme@gipsa-lab.fr>
-Maintainer: Simon Barthelme <simon.barthelme@gipsa-lab.fr>
-Description: Eyelink eye trackers output a horrible mess, typically under
-    the form of a '.asc' file. The file in question is an assorted collection of
-    messages, events and raw data. This R package will attempt to make sense of it.
-Depends: R (>= 3.1.1)
-Imports: plyr, stringi, stringr, readr, magrittr, intervals
-License: GPL-3
-RoxygenNote: 5.0.1
-Suggests: testthat, knitr, rmarkdown, dplyr, ggplot2, tidyr
+Maintainer: Austin Hurst <ajhurst@uwaterloo.ca>
+Description: Imports plain-text ASC data files from EyeLink eye trackers 
+    into (relatively) tidy data frames for analysis and visualization.
+License: GPL-3 | file LICENCE
+URL: https://github.com/a-hurst/eyelinker
+BugReports: https://github.com/a-hurst/eyelinker/issues
+Depends: R (>= 3.2)
+Imports: stringi, stringr, tibble, readr, intervals
+Suggests: testthat, knitr, rmarkdown, dplyr, ggplot2, tidyr, covr
 VignetteBuilder: knitr
+Encoding: UTF-8
+RoxygenNote: 6.1.1
 NeedsCompilation: no
-Packaged: 2016-04-21 08:40:30 UTC; simon
+Packaged: 2019-09-22 18:48:44 UTC; austinhurst
 Repository: CRAN
-Date/Publication: 2016-04-21 13:46:06
+Date/Publication: 2019-09-22 22:00:03 UTC

@@ -1,18 +1,24 @@
-#' eyelinker: read raw data from Eyelink eyetrackers
+#' Import ASC Files from EyeLink Eye Trackers
 #'
-#' Eyelink eye trackers output a horrible mess, typically under
-#'  the form of an .asc file. The file in question is an assorted collection of
-#'  messages, events and raw data. This R package will attempt to make sense of it.
+#' Dealing with unprocessed ASC files from EyeLink eye trackers can be a pain.
+#' This package aims to make importing and working with these files as fast and
+#' easy as possible.
 #'
-#' The main function in the package is read.asc. 
+#' For documentation of the structure of the returned data, see the "format" vignette:
+#'
+#' \code{vignette("format", package = "eyelinker")}
+#'
+#' For worked examples illustrating the package in action, see the "basics" vignette:
+#'
+#' \code{vignette("basics", package = "eyelinker")}
 #' @docType package
 #' @name eyelinker
 NULL
 
-#' @importFrom stringr str_match str_split str_sub str_trim str_replace str_replace_all str_detect fixed
-#' @importFrom readr read_tsv
-#' @importFrom plyr llply dlply ldply mutate
-#' @importFrom stringi stri_enc_toascii
-#' @importFrom magrittr "%>%"
+#' @importFrom utils tail
+#' @importFrom stringr str_sub<- str_detect fixed
+#' @importFrom tibble as_tibble add_column
+#' @importFrom readr read_lines read_tsv read_table2
+#' @importFrom stringi stri_enc_toascii stri_split_regex stri_split_fixed stri_count_fixed
 #' @importFrom intervals which_nearest distance_to_nearest Intervals
 NULL

@@ -1,0 +1,218 @@
+---
+title: "Understanding the eyelinker Data Structure"
+author: "Austin Hurst"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Understanding the eyelinker Data Structure}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+After you've imported your ASC into R, you might find yourself trying to make sense of the resulting data. This vignettes walks you through the basic structure of the `read.asc()` output, and explains the different possible columns in each data frame along with any other relevant information.
+
+
+## The Basic Structure
+
+```{r message=FALSE}
+require(eyelinker)
+
+# Load in an example file, look at structure
+ascfile <- system.file("extdata/mono2000.asc.gz", package = "eyelinker")
+asc <- read.asc(ascfile)
+str(asc, max.level = 1)
+```
+
+The output format of `read.asc()` is a named list containing several data frames, each containing a different kind of data extracted from the ASC file. The names and contents of this list are as follows:
+
+Name | Data Frame Contents
+----- | -----------
+`raw` | Raw sample data containing gaze, pupil size, and (often) more
+`sacc` | Saccade end events
+`fix` | Fixation end events
+`blinks` | Blink end events
+`msg` | Messages sent to/from the tracker during recording
+`input` | Input port (TTL) events
+`button` | Button box / gamepad events
+`info` | Tracker hardware / setup / recording information
+
+Apart from `info`, all data frames in the list are tibbles. We'll discuss each of these data frames and the meanings of their columns/contents in greater detail below.
+
+
+## Raw Sample Data
+
+Raw sample data contains millisecond-by-millisecond eye data across the session, at the sample rate used for recording (anywhere from 125 Hz / 8 ms per sample to 2000 Hz / 0.5 ms per sample). Given the high temporal resolution of this data, this data frame can be very large and contain millions of rows.
+
+The contents of this data frame can also vary quite a bit between files, depending on the recording settings (mount type, monocular vs binocular, CR tracking vs pupil only) and EDF to ASC conversion settings (including velocity/resolution/input/button data in output). The following is a comprehensive list of the possible (supported) raw column types and their meanings:
+
+Column | Description
+------ | -----------
+`block` | Block number that sample occurred in
+`time` | Timestamp of sample (in msec)
+`xp`, `xpl`, `xpr` | X position of (left/right) eye
+`yp`, `ypl`, `ypr` | Y position of (left/right) eye
+`ps`, `psl`, `psr` | Pupil size of (left/right) eye
+`xv`, `xvl`, `xvr` | X-axis velocity of (left/right) eye
+`yv`, `yvl`, `yvr` | Y-axis velocity of (left/right) eye
+`xr` | X resolution (in pixels per degree [see Footnote 1])
+`yr` | Y resolution (in pixels per degree [see Footnote 1])
+`input` | Input port value at time of sample
+`buttons` | Button box state at time of sample
+`cr.info` | Corneal reflection diagnostic/warning info
+`tx` | X-position of target sticker relative to camera
+`ty` | Y-position of target sticker relative to camera
+`td` | Distance of target sticker relative to camera (in mm)
+`remote.info` | Target tracking diagnostic/warning info
+
+All ASC files contain timestamp, X/Y position, and pupil size columns. If both eyes are tracked in a given ASC, it will have separate position, pupil size, and (if present) velocity columns for both eyes, with the relevant eye indicated by the suffix "l" (for left eye) and "r" (for right eye) at the end of the column name. If corneal reflection tracking is used for recording (optional on EyeLink II, always used for EyeLink 1000 and newer), a `cr.info` column will also be present.
+
+Velocity, resolution, input, and button data are not usually included in ASC files, but can be included if enabled in the EDFConverter/edf2asc export settings. If the data was recorded in remote mode (i.e using a target sticker to track head movements), the sample data may also contain columns indicating the position (`tx`, `ty`), distance from camera (`td`), and target tracking warning/diagnostic info (`remote.info`).
+
+Information on how to interpret the contents of the `cr.info` and `remote.info` columns is available in the EyeLink 1000 Plus user's guide (also applies to other EyeLink models), but in general anything other than a string of all `.`s indicates a warning or error regarding tracking for that sample.
+
+
+## Saccade Events
+
+Saccade events, as parsed by the EyeLink during recording, are also recorded in ASC files. The saccade data frame can contain the following columns:
+
+Column | Description
+------ | -----------
+`block` | Number of block that saccade occurred in
+`stime` | Saccade start time (in msec)
+`etime` | Saccade end time (in msec)
+`dur` | Saccade duration (in msec)
+`sxp` | X-coordinate of saccade start
+`syp` | Y-coordinate of saccade start
+`exp` | X-coordinate of saccade end
+`eyp` | Y-coordinate of saccade end
+`ampl` | Amplitude of saccade (in degrees of visual angle)
+`pv` | Peak velocity of saccade
+`xr` | X resolution (in pixels per degree [see footnote 1])
+`yr` | Y resolution (in pixels per degree [see footnote 1])
+`eye` | Eye that made the saccade (L or R)
+
+Resolution columns (`xr`/`yr`) are only included in the saccade data if the ASC file is exported with resolution info enabled. If events are recorded in HREF format, saccade events contain start/end coordinates, amplitude, and peak velocity columns twice: once in HREF units and once in gaze (screen coordinates) units. Although both amplitude columns (`href.ampl` and `ampl`) are seemingly both in units of degrees, but their values differ slightly and are presumably calculated differently. Peak velocities (`href.pv` and `pv`), however, appear to be identical throughout.
+
+
+## Fixation Events
+
+Along with saccades, the EyeLink also parses fixation events during recording, which are also included in the ASC file. The fixation data frame can contain the following columns:
+
+Column | Description
+------ | -----------
+`block` | Number of block that fixation occurred in
+`stime` | Fixation start time (in msec)
+`etime` | Fixation end time (in msec)
+`dur` | Fixation duration (in msec)
+`axp` | Average X position during fixation
+`ayp` | Average Y position during fixation
+`aps` | Average pupil size during fixation
+`xr` | X resolution (in pixels per degree [see footnote 1])
+`yr` | Y resolution (in pixels per degree [see footnote 1])
+`eye` | Eye that made the fixation (L or R)
+
+As with saccades, the resolution columns (`xr`/`yr`) are only included in the data frame if the ASC file is exported with resolution info enabled. If events are recorded in HREF format, fixation events contain average gaze coordinates and average pupil size columns twice: once in HREF units and once in gaze (screen coordinates) units. Because pupil size is computed the same way regardless of gaze units, the `href.aps` and `aps` columns will always be identical.
+
+
+## Blink Events
+
+In addition to fixations and saccades, EyeLink trackers also detect blinks during recording. Unlike the fixation, saccade, and raw sample data frames, blink event data always contains the same columns regardless of recording or ASC export settings:
+
+Column | Description
+------ | -----------
+`block` | Number of block that blink occurred in
+`stime` | Blink start time (in msec)
+`etime` | Blink end time (in msec)
+`dur` | Blink duration (in msec)
+
+
+## Message Events
+
+The message events data frame contains both messages from the tracker itself (e.g. messages about drift corrects and recording settings) and messages sent to the tracker during recording by the experiment program (e.g. the block/trial number, markers of events within the trial, etc.). `read.asc()` makes no attempt to parse message content, leaving this task to the user.
+
+Column | Description
+------ | -----------
+`block` | Number of block that message occurred in
+`time` | Message onset time (in msec)
+`text` | String containing the given message
+
+
+
+## Input Events
+
+Input events occur when digital input is received by the tracker's parallel port. As such, only ASC files for experiments involving input to this port will contain any input events. Here is the structure of the input event data frame:
+
+Column | Description
+------ | -----------
+`block` | Number of block that input occurred in
+`time` | Input onset time (in msec)
+`value` | Value of input event
+
+
+## Button Events
+
+Button events occur when a button is pressed or released on a button box connected to the EyeLink. As such, only ASC files for experiments where a tracker-connected button box was used will contain any button events. Here is the structure of button event data frame:
+
+Column | Description
+------ | -----------
+`block` | Number of block that button press occurred in
+`time` | Button onset time (in msec)
+`button` | Number of button pressed (1 to 8)
+`state` | State of button (1 = pressed, 0 = released)
+
+**NOTE**: Although support for button events has been implementing according to the info in the EyeLink 1000 User's Manual, eyelinker has not officially been tested with any ASC files containing button events. If you encounter any issues importing files with button events, please send the maintainer an email or file an issue on the project's GitHub page.
+
+
+## Tracker/File Info
+
+The info data frame consists of a single row containing information about the tracker setup, recording settings, and other useful metadata. Here is a table explaining the different info columns and their contents:
+
+Column | Description
+------ | -----------
+`date` | Date and time of recording
+`model` | EyeLink tracker model (e.g. EyeLink II, EyeLink 1000)
+`version` | EyeLink software version number
+`sample.rate` | Sample rate of recording (in Hz)
+`cr` | Whether corneal reflection tracking used (TRUE/FALSE)
+`left` | Whether left eye tracked (TRUE/FALSE)
+`right` | Whether right eye tracked (TRUE/FALSE)
+`mono` | Whether recording is monocular (TRUE) or binocular (FALSE)
+`screen.x` | X resolution of Stimulus PC display
+`screen.y` | Y resolution of Stimulus PC display
+`mount` | The mounting setup of the EyeLink (e.g. "Desktop / Monocular / Remote")
+`filter.level` | The level of filtering applied to samples (0 = off, 1 = standard, 2 = extra)
+`sample.dtype` | Type of sample data (GAZE, HREF, or PUPIL)
+`event.dtype` | Type of event data (GAZE or HREF)
+`pupil.dtype` | Type of pupil size data (AREA or DIAMETER)
+`velocity` | Whether samples contains velocity data (TRUE/FALSE)
+`resolution` | Whether samples and events contain resolution data (TRUE/FALSE)
+`htarg` | Whether samples contain remote-mode head target data (TRUE/FALSE)
+`input` | Whether samples contain input data (TRUE/FALSE)
+`buttons` | Whether samples contain button data (TRUE/FALSE)
+
+Some of the above information is not always available in an ASC file (e.g. screen resolution is not always present, mount type only applies to certain EyeLink models). If a given field of information is missing from the file, that column will contain an `NA` instead of another value.
+
+### Date & Time
+
+Date and time are dependent on the EyeLink's internal clock, and thus may be way off considering these machines usually aren't connected to the internet, people usually don't bother to set date/time correctly in BIOS, and the motherboard clock batteries on some older EyeLink I/IIs are probably dead or dying.
+
+### Screen Resolution
+
+Sometimes the listed screen resolution X/Y values will be one pixel more than their actual values (e.g. 1025 x 769 instead of 1024 x 768). This isn't an error: because the coordinates of the top-right corner of the screen are (0, 0) and not (1, 1), if you set the bottom-left coordinates to (1024, 768) the screen size (as far as the EyeLink knows) is 1025 pixels wide and 769 pixels tall. To avoid this problem, subtract 1 from the X/Y values when sending the screen resolution to the EyeLink in your experiment code (e.g. `DISPLAY_COORDS 0 0 1023 767`).
+
+### Sample & Event Data Types
+
+The `sample.dtype` and `event.dtype` fields indicate the position units used for samples and events, respectively (they can be different). All of the different possible position unit types (and their use cases) are explained detail in the EyeLink User's Manual, but here's a brief explanation of all three:
+
+Unit | Explanation
+---- | -----------
+`GAZE` | Pixel coordinates on the stimulus display that the participant is looking at
+`HREF` | Angles of eye rotation relative to the head
+`PUPIL` | Raw pupil coordinates relative to the EyeLink camera
+
+For most use cases, you'll want to be recording `GAZE` data (the default setting for both events and samples).
+
+
+## Footnotes
+
+1. The EyeLink 1000 Plus User's Guide lists the units for the `xr`/`yr` resolution columns as being "position units per degree", but based on the inspection of actual .asc files the X/Y resolution always appears to be in pixels per degree regardless of whether events are recorded in Gaze or HREF format.`
