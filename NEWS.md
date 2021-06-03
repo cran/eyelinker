@@ -1,3 +1,13 @@
+# eyelinker 0.2.1
+
+ * Fixed bug reading screen resolution from certain .asc files
+ * Added tidyverse-style aliases for `read.asc`, `whichInterval`, and `%In%`
+   (`read_asc`, `which_interval`, and `%within`, respectively)
+ * Improved documentation for interval utility functions
+ * Fixed handling of files containing random rows with too many columns (#1)
+ * Added compatibility with readr 2.0.0 (#2, by Jim Hester)
+
+
 # eyelinker 0.2.0
 
  * Complete rewrite of `read.asc`, making imports up to 5x faster

@@ -2,9 +2,12 @@
 % Please edit documentation in R/eyelink_parser.R
 \name{read.asc}
 \alias{read.asc}
+\alias{read_asc}
 \title{Read EyeLink ASC Files}
 \usage{
 read.asc(fname, samples = TRUE, events = TRUE, parse_all = FALSE)
+
+read_asc(fname, samples = TRUE, events = TRUE, parse_all = FALSE)
 }
 \arguments{
 \item{fname}{\code{character} vector indicating the name of the .asc file to import.}

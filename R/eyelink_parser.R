@@ -135,6 +135,11 @@ read.asc <- function(fname, samples = TRUE, events = TRUE, parse_all = FALSE) {
 }
 
 
+#' @rdname read.asc
+#' @export
+read_asc <- read.asc  # Alias for keeping with tidyverse-style naming conventions
+
+
 process_raw <- function(raw, blocks, info) {
 
     if (length(raw) == 0) {
@@ -154,27 +159,29 @@ process_raw <- function(raw, blocks, info) {
         colnames <- get_raw_header(info)
         coltypes <- get_coltypes(colnames, float_time)
 
-        # Discard any rows with missing columns (usually rows where eye is missing)
+        # Discard any rows with too many or too few columns (usually rows where eye is missing)
         row_length <- stri_count_fixed(raw, "\t") + 1
-        max_length <- max(row_length)
-        raw <- raw[row_length == max_length]
-        blocks <- blocks[row_length == max_length]
+        med_length <- median(row_length)
+        raw <- raw[row_length == med_length]
+        blocks <- blocks[row_length == med_length]
 
         # Verify that generated columns match up with actual maximum row length
-        length_diff <- max_length - length(colnames)
+        length_diff <- med_length - length(colnames)
         if (length_diff > 0) {
             warning(paste(
                 "Unknown columns in raw data.",
                 "Assuming first one is time, please check the others"
             ))
-            colnames <- c("time", paste0("X", 1:(max_length - 1)))
-            coltypes <- paste0(c("i", rep("?", max_length - 1)), collapse = "")
+            colnames <- c("time", paste0("X", 1:(med_length - 1)))
+            coltypes <- paste0(c("i", rep("?", med_length - 1)), collapse = "")
         }
     }
 
     # Process raw sample data using readr
     if (length(raw) == 1) raw <- c(raw, "")
-    raw_df <- read_tsv(raw, col_names = colnames, col_types = coltypes, na = ".", progress = FALSE)
+    raw_df <- read_tsv(
+        I(raw), col_names = colnames, col_types = coltypes, na = ".", progress = FALSE
+    )
     if (info$tracking & !info$cr) {
         raw_df$cr.info <- NULL  # Drop CR column when not actually used
     }
@@ -382,9 +389,10 @@ get_resolution <- function(nonsample) {
     for (pattern in c("DISPLAY_COORDS", "GAZE_COORDS", "RESOLUTION")) {
         display_xy <- nonsample[str_detect(nonsample, fixed(pattern))]
         if (length(display_xy) == 0) next
-        display_xy <- gsub(paste0(".* ", pattern, "\\s+(.*)"), "\\1", display_xy[1])
+        display_xy <- gsub(paste0(".* ", pattern, "\\D+(.*)"), "\\1", display_xy[1])
         display_xy <- as.numeric(unlist(strsplit(display_xy, split = "\\s+")))
         res <- c(display_xy[3] - display_xy[1] + 1, display_xy[4] - display_xy[2] + 1)
+        break
     }
 
     res

@@ -15,6 +15,7 @@
 #' @name eyelinker
 NULL
 
+#' @importFrom stats median
 #' @importFrom utils tail
 #' @importFrom stringr str_sub<- str_detect fixed
 #' @importFrom tibble as_tibble add_column

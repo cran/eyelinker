@@ -49,19 +49,18 @@ test_that("test_event_headers", {
 })
 
 
-# Test remote.info detection
-test_that("test_remote_info", {
+# Test resolution parsing from .asc
+test_that("test_get_resolution", {
 
-    lines <- c(
-        "5578551\t 967.9\t 540.0\t 2233.0\t ...\t -128.0\t -262.0\t 285.6 .............",
-        "5578551\t 967.9\t 540.0\t 2233.0\t ...\t -128.0\t -262.0\t 285.6 ...C.TBLRTB..",
-        "5578551\t 967.9\t 540.0\t 2233.0\t ...\t -128.0\t -262.0\t 285.6 ...C.TBL.T.L.",
-        "5578551\t 967.9\t 540.0\t 2233.0\t ...\t -128.0\t -262.0\t 285.6 ...CF..L...LR",
-        "5578551\t 967.9\t 540.0\t 2233.0\t ..."
-    )
-    regex <- get_htarg_regex(binocular = FALSE)
-    expect_equal(all(grepl(regex, lines[1:4])), TRUE)
-    expect_equal(all(grepl(regex, lines[5])), FALSE)
+    # Test case when equals sign present (rare, but happens)
+    lines <- c("MSG\t1446373 DISPLAY_COORDS = 0 0 1024 768", "")
+    res <- get_resolution(lines)
+    expect_equal(res, c(1025, 769))
+
+    # Test GAZE_COORDS parsing where screen size is in floats
+    lines <- c("MSG\t2361384 GAZE_COORDS 0.00 0.00 1279.00 1023.00", "")
+    res <- get_resolution(lines)
+    expect_equal(res, c(1280, 1024))
 })
 
 
@@ -113,14 +112,15 @@ test_that("test_process_raw", {
         input = FALSE, buttons = FALSE, tracking = TRUE, htarg = FALSE
     )
     lines <- c(
+        "5578547\t 967.5\t 540.2\t 2231.0\t .",
         "5578551\t 967.9\t 540.0\t 2233.0\t .",
         "5578555\t     .\t     .\t    0.0\t ."
     )
 
     # Test handling of unnecessary cr.info column
-    raw <- process_raw(lines, c(1, 1), info)
+    raw <- process_raw(lines, c(1, 1, 1), info)
     expect_equal(ncol(raw), 5)
-    expect_equal(nrow(raw), 2)
+    expect_equal(nrow(raw), 3)
 
     # Test handling of single row only
     raw <- process_raw(lines[1], 1, info)
@@ -129,9 +129,9 @@ test_that("test_process_raw", {
 
     # Test handling of unknown columns
     info$tracking <- FALSE
-    raw <- expect_warning(process_raw(lines, c(1, 1), info))
+    raw <- expect_warning(process_raw(lines, c(1, 1, 1), info))
     expect_equal(ncol(raw), 6)
-    expect_equal(nrow(raw), 2)
+    expect_equal(nrow(raw), 3)
     expect_equal("X1" %in% names(raw), TRUE)
 
     # Test handling of files w/ no samples
@@ -139,15 +139,18 @@ test_that("test_process_raw", {
     expect_equal(ncol(raw), 5)
     expect_equal("xp" %in% names(raw), TRUE)
 
-    # Test handling of lines with inconsistent lengths
-    lines <- c(
-        "5578551\t 967.9\t 540.0\t 2233.0\t .",
-        "5578555\t     .\t     .\t    0.0"
-    )
+    # Test handling of random rows with too few columns
     info$tracking <- TRUE
-    raw <- process_raw(lines, c(1, 1), info)
+    lines[3] <- "5578555\t     .\t     .\t    0.0"
+    raw <- process_raw(lines, c(1, 1, 1), info)
     expect_equal(ncol(raw), 5)
-    expect_equal(nrow(raw), 1)
+    expect_equal(nrow(raw), 2)
+
+    # Test handling of random rows with too many columns
+    lines[3] <- "5578555\t   .\t   .\t    0.0\t   .\t   .\t    0.0"
+    raw <- process_raw(lines, c(1, 1, 1), info)
+    expect_equal(ncol(raw), 5)
+    expect_equal(nrow(raw), 2)
 })
 
 
@@ -165,7 +168,7 @@ test_that("test_remote_info", {
     expect_equal(out[[2]]$htarg, FALSE)
     expect_equal(length(out[[1]]), 3)
 
-    # Test adding of tab separator before remote.info lines
+    # Test regex for htarget detection
     lines <- c(
         "5578551\t 967.9\t 540.0\t 2233.0\t ...\t -128.0\t -262.0\t 285.6 .............",
         "5578551\t 967.9\t 540.0\t 2233.0\t ...\t -128.0\t -262.0\t 285.6 ...C.TBLRTB..",
@@ -173,6 +176,11 @@ test_that("test_remote_info", {
         "5578551\t 967.9\t 540.0\t 2233.0\t ...\t -128.0\t -262.0\t 285.6 ...CF..L...LR",
         "5578551\t 967.9\t 540.0\t 2233.0\t ..."
     )
+    regex <- get_htarg_regex(binocular = FALSE)
+    expect_equal(all(grepl(regex, lines[1:4])), TRUE)
+    expect_equal(all(grepl(regex, lines[5])), FALSE)
+
+    # Test adding of tab separator before remote.info lines
     out <- handle_htarg(lines, info, rep(TRUE, 5))
     tab_counts <- stri_count_fixed(out[[1]], "\t")
     expect_equal(out[[2]]$htarg, TRUE)
@@ -229,24 +237,24 @@ test_that("test_block_parsing", {
     )
 
     # Test handling of no END line
-    a <- read.asc(testfile)
+    a <- read.asc(I(testfile))
     expect_equal(nrow(a$raw), 3)
     expect_equal("TRIAL_ID 1" %in% a$msg$text, TRUE)
 
     # Test handling of END line as last line
     testfile <- c(testfile, "END\t598729\t SAMPLES\t EVENTS\t RES\t 41.91\t 38.82")
-    a <- read.asc(testfile)
+    a <- read.asc(I(testfile))
     expect_equal(nrow(a$raw), 3)
     expect_equal("TRIAL_ID 1" %in% a$msg$text, TRUE)
 
     # Test handling of content after last END line
     testfile <- c(testfile, "MSG\t601379 trialResult 3")
-    a <- read.asc(testfile)
+    a <- read.asc(I(testfile))
     expect_equal(nrow(a$raw), 3)
     expect_equal("TRIAL_ID 1" %in% a$msg$text, TRUE)
 
     # Test handling of content after last END line when parse_all is TRUE
-    a <- read.asc(testfile, parse_all = TRUE)
+    a <- read.asc(I(testfile), parse_all = TRUE)
     expect_equal(nrow(a$raw), 3)
     expect_equal("TRIAL_ID 1" %in% a$msg$text, TRUE)
     expect_equal("trialResult 3" %in% a$msg$text, TRUE)

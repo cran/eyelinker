@@ -2,12 +2,15 @@
 % Please edit documentation in R/utils.R
 \name{\%In\%}
 \alias{\%In\%}
+\alias{\%within\%}
 \title{Find if value belongs to a set of intervals}
 \usage{
 x \%In\% Intv
+
+x \%within\% Intv
 }
 \arguments{
-\item{x}{A set of numeric values}
+\item{x}{A vector of numeric values}
 
 \item{Intv}{A set of intervals, defined by a two-column matrix of endpoints or an Intervals
 object}
@@ -16,7 +19,10 @@ object}
 A vector of logicals, which are true if x[i] belongs to any of the intervals in the set.
 }
 \description{
-Wrapper around \code{\link[intervals]{distance_to_nearest}} from the "intervals" package.
+Returns whether numeric values on the left-hand side of the operator fall within any of the
+specified intervals on the right-hand side. Intervals can be specified using either two-column
+matrices or \code{\link[intervals:Intervals-class]{Intervals}} objects from the
+\code{intervals} package.
 }
 \examples{
 start <- c(0, 1, 2)

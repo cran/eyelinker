@@ -11,7 +11,7 @@ test_that("test_files_load", {
     )
     ascs <- lapply(files, function(f) {
         fpath <- system.file(paste0("extdata/", f), package = "eyelinker")
-        read.asc(fpath)
+        read_asc(fpath)
     })
     names(ascs) <- files
 
