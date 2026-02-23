@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<meta name="author" content="Austin Hurst" />
+
+<meta name="date" content="2026-02-22" />
+
+<title>Batch Importing ASC Files</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Batch Importing ASC Files</h1>
+<h4 class="author">Austin Hurst</h4>
+<h4 class="date">2026-02-22</h4>
+
+
+
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co"># Import libraries required for the vignette</span></span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a><span class="fu">require</span>(eyelinker)</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="fu">require</span>(dplyr)</span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a><span class="fu">require</span>(tibble)</span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a><span class="fu">require</span>(purrr)</span></code></pre></div>
+<p>Generally when working with eye tracking data, you’re working with
+data from more than one participant. As such, you generally want to be
+able to write your analysis scripts to be able to batch import and merge
+a whole list of <code>.asc</code> files! There are a few different ways
+to do this, depending on your specific use. Which method you use will
+depend on what kind of information you want to extract from the files as
+well as the file sizes of the recordings.</p>
+<p>First, you’ll need to get a vector with paths to the files you want
+to import. For actual projects you can do this with R’s built-in
+<code>list.files</code> function, but for the sake of this vignette
+we’ll load some file paths from the package example data:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="co"># Get full paths for all compressed .asc files in _Data/asc folder</span></span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>ascs <span class="ot">&lt;-</span> <span class="fu">list.files</span>(</span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>  <span class="st">&quot;./_Data/asc&quot;</span>, <span class="at">pattern =</span> <span class="st">&quot;*.asc.gz&quot;</span>,</span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>  <span class="at">full.names =</span> <span class="cn">TRUE</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span></span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>)</span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a><span class="co"># Get paths of example files for batch import</span></span>
+<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a>ascs <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a>    <span class="fu">system.file</span>(<span class="st">&quot;extdata/mono250.asc.gz&quot;</span>, <span class="at">package =</span> <span class="st">&quot;eyelinker&quot;</span>),</span>
+<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a>    <span class="fu">system.file</span>(<span class="st">&quot;extdata/mono500.asc.gz&quot;</span>, <span class="at">package =</span> <span class="st">&quot;eyelinker&quot;</span>),</span>
+<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a>    <span class="fu">system.file</span>(<span class="st">&quot;extdata/mono1000.asc.gz&quot;</span>, <span class="at">package =</span> <span class="st">&quot;eyelinker&quot;</span>)</span>
+<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a>)</span></code></pre></div>
+<div id="single-event-type" class="section level2">
+<h2>Single Event Type</h2>
+<p>If you’re only interested in importing a single event type (and that
+event type isn’t raw samples), batch importing data can be done easily
+using <code>map_df</code> from the <code>purrr</code> package:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="co"># Batch import and merge saccade data for all files</span></span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>sacc_dat <span class="ot">&lt;-</span> <span class="fu">map_df</span>(ascs, <span class="cf">function</span>(f) {</span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>  <span class="co"># Extract saccade data frame from file</span></span>
+<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a>  df <span class="ot">&lt;-</span> <span class="fu">read_asc</span>(f, <span class="at">samples =</span> <span class="cn">FALSE</span>)<span class="sc">$</span>sacc</span>
+<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>  <span class="co"># Extract ID from file name and append to data as first column</span></span>
+<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>  id <span class="ot">&lt;-</span> <span class="fu">gsub</span>(<span class="st">&quot;.asc.gz&quot;</span>, <span class="st">&quot;&quot;</span>, <span class="fu">basename</span>(f))</span>
+<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>  df <span class="ot">&lt;-</span> <span class="fu">add_column</span>(df, <span class="at">asc_id =</span> id, <span class="at">.before =</span> <span class="dv">1</span>)</span>
+<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>  <span class="co"># Return data frame</span></span>
+<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>  df</span>
+<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a>})</span>
+<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a><span class="co"># Batch import file metadata</span></span>
+<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>asc_info <span class="ot">&lt;-</span> <span class="fu">map_df</span>(ascs, <span class="cf">function</span>(f) {</span>
+<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>  <span class="co"># Extract metadata data frame from file</span></span>
+<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>  df <span class="ot">&lt;-</span> <span class="fu">read_asc</span>(f, <span class="at">samples =</span> <span class="cn">FALSE</span>)<span class="sc">$</span>info</span>
+<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>  <span class="co"># Extract ID from file name and append to data as first column</span></span>
+<span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a>  id <span class="ot">&lt;-</span> <span class="fu">gsub</span>(<span class="st">&quot;.asc.gz&quot;</span>, <span class="st">&quot;&quot;</span>, <span class="fu">basename</span>(f))</span>
+<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a>  df <span class="ot">&lt;-</span> <span class="fu">add_column</span>(df, <span class="at">asc_id =</span> id, <span class="at">.before =</span> <span class="dv">1</span>)</span>
+<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a>  <span class="co"># Return data frame</span></span>
+<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a>  df</span>
+<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a>})</span></code></pre></div>
+<p>Now let’s take a look at the saccade data we batch-imported. As you
+can see, the saccades from all three data files have been merged into a
+single data frame with the first column identifying the source file:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a>sacc_dat</span></code></pre></div>
+<pre><code>## # A tibble: 19 × 12
+##    asc_id   block   stime  etime   dur   sxp   syp   exp   eyp  ampl    pv eye  
+##    &lt;chr&gt;    &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;fct&gt;
+##  1 mono250      1 5886725 5.89e6    52  509.  384   241.  376.  7.57   401 L    
+##  2 mono250      2 5889357 5.89e6    52  514.  384.  243   366.  7.68   439 L    
+##  3 mono250      3 5892369 5.89e6    40  515.  385.  796   377   7.92   371 L    
+##  4 mono250      4 5895537 5.90e6    20  515.  385.  508.  370.  0.47    75 L    
+##  5 mono250      4 5895997 5.90e6    40  510.  373.  800.  380   8.16   391 L    
+##  6 mono500      1 7197124 7.20e6    12  514.  396.  509.  380.  0.46    57 L    
+##  7 mono500      1 7197510 7.20e6    38  511.  383   736.  373.  6.38   313 L    
+##  8 mono500      1 7197698 7.20e6    26  734.  378.  818   392.  2.37   195 L    
+##  9 mono500      2 7199340 7.20e6    20  511.  384.  481.  376.  0.88    99 L    
+## 10 mono500      2 7199572 7.20e6    14  492   385.  517.  381.  0.71    76 L    
+## 11 mono500      2 7200056 7.20e6    38  504.  387.  233.  357.  7.69   412 L    
+## 12 mono500      3 7202696 7.20e6    40  508   384.  802.  365   8.32   365 L    
+## 13 mono500      4 7205282 7.21e6    38  508.  382.  238.  360.  7.65   419 L    
+## 14 mono1000     1 7710088 7.71e6    15  503   399.  507.  389.  0.32    42 R    
+## 15 mono1000     1 7710438 7.71e6    52  511.  390.  251   354.  7.4    399 R    
+## 16 mono1000     2 7712887 7.71e6    52  510.  403.  246.  354.  7.57   426 R    
+## 17 mono1000     3 7715791 7.72e6    13  510   392.  514   378.  0.41    44 R    
+## 18 mono1000     3 7716155 7.72e6    39  516.  382.  780.  386.  7.45   376 R    
+## 19 mono1000     4 7719164 7.72e6    54  514.  396.  798   396.  8.02   381 R</code></pre>
+<p>The batch-imported metadata is the same, with a single row for each
+participant. Reading in metadata this way makes it easy to identify any
+differences in eye tracker settings across participants (e.g. sample
+rate, eye tracked):</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a>asc_info <span class="sc">%&gt;%</span></span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>  <span class="fu">select</span>(<span class="fu">c</span>(asc_id, model, sample.rate, left, right, cr, screen.x, screen.y))</span></code></pre></div>
+<pre><code>##     asc_id             model sample.rate  left right   cr screen.x screen.y
+## 1  mono250 EyeLink 1000 Plus         250  TRUE FALSE TRUE     1024      768
+## 2  mono500 EyeLink 1000 Plus         500  TRUE FALSE TRUE     1024      768
+## 3 mono1000 EyeLink 1000 Plus        1000 FALSE  TRUE TRUE     1024      768</code></pre>
+<p>All the <code>map_df</code> function does is take a list of inputs
+(in this case, our list of <code>.asc</code> files), runs the same
+wrangling code on each input separately, and then stacks the output into
+a single data frame. This will work as long as the data frames returned
+in the wrangling stage all have identical column names and column types.
+Note that you need to extract and append the file ID or participant ID
+and append it to the data in this stage, otherwise you won’t be able to
+tell which rows belong to which file!</p>
+<div id="raw-samples" class="section level3">
+<h3>Raw Samples</h3>
+<p>If you’re interested in batch-importing raw samples from multiple
+files you can use a similar approach but will need to keep RAM usage in
+mind. Remember that a single <code>.asc</code> file can contain millions
+of samples (especially at high sample rates), so anything you can do to
+cut down the amount of data from each file will help speed things
+up!</p>
+<p>A good approach for batch-importing raw sample data is to write a
+function that performs your desired preprocessing steps on the output
+from <code>read_asc</code> and then call that preprocessing function in
+<code>map_df</code>. For example, for a pupilometry study this function
+might window the pupil data for each trial to the region of interest
+using message timestamps (<code>asc$msg</code>), identify and
+interpolate blinks using the blink events identified by the tracker
+(<code>asc$blinks</code>), and then filter and downsample the pupil data
+before returning the data frame.</p>
+</div>
+</div>
+<div id="multiple-event-types" class="section level2">
+<h2>Multiple Event Types</h2>
+<p>For some use cases, the above approach will work perfectly fine.
+However, if your project involves analyzing <em>multiple</em> eye data
+types it can be needlessly slow to parse each <code>.asc</code> file
+multiple times to extract all the data you need. As an alternative, you
+can use R’s built-in <code>lapply</code> function to import all data
+into a list and then process the contents of that list separately:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="co"># Batch import full eye data (excluding raw samples) for all files</span></span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a>eyedat <span class="ot">&lt;-</span> <span class="fu">lapply</span>(ascs, <span class="cf">function</span>(f) {</span>
+<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a>  <span class="co"># Since importing can be slow, print out progress message for each file</span></span>
+<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="fu">paste0</span>(<span class="st">&quot;Importing &quot;</span>, <span class="fu">basename</span>(f), <span class="st">&quot;...</span><span class="sc">\n</span><span class="st">&quot;</span>))</span>
+<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a>  <span class="co"># Actually import the data</span></span>
+<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a>  <span class="fu">read_asc</span>(f, <span class="at">samples =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb8-7"><a href="#cb8-7" tabindex="-1"></a>})</span></code></pre></div>
+<pre><code>## Importing mono250.asc.gz...
+## Importing mono500.asc.gz...
+## Importing mono1000.asc.gz...</code></pre>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" tabindex="-1"></a><span class="co"># Extract names of files (excluding suffix) and use them as participant IDs</span></span>
+<span id="cb10-2"><a href="#cb10-2" tabindex="-1"></a>asc_ids <span class="ot">&lt;-</span> <span class="fu">gsub</span>(<span class="st">&quot;.asc.gz&quot;</span>, <span class="st">&quot;&quot;</span>, <span class="fu">basename</span>(ascs))</span>
+<span id="cb10-3"><a href="#cb10-3" tabindex="-1"></a><span class="fu">names</span>(eyedat) <span class="ot">&lt;-</span> asc_ids</span>
+<span id="cb10-4"><a href="#cb10-4" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" tabindex="-1"></a><span class="co"># Parse fixation data from list</span></span>
+<span id="cb10-6"><a href="#cb10-6" tabindex="-1"></a>fix_dat <span class="ot">&lt;-</span> <span class="fu">map_df</span>(asc_ids, <span class="cf">function</span>(id) {</span>
+<span id="cb10-7"><a href="#cb10-7" tabindex="-1"></a>  <span class="co"># Grab fixation data from each file in the list &amp; append ID</span></span>
+<span id="cb10-8"><a href="#cb10-8" tabindex="-1"></a>  eyedat[[id]]<span class="sc">$</span>fix <span class="sc">%&gt;%</span></span>
+<span id="cb10-9"><a href="#cb10-9" tabindex="-1"></a>    <span class="fu">add_column</span>(<span class="at">asc_id =</span> id, <span class="at">.before =</span> <span class="dv">1</span>)</span>
+<span id="cb10-10"><a href="#cb10-10" tabindex="-1"></a>})</span>
+<span id="cb10-11"><a href="#cb10-11" tabindex="-1"></a></span>
+<span id="cb10-12"><a href="#cb10-12" tabindex="-1"></a><span class="co"># Parse blink data from list</span></span>
+<span id="cb10-13"><a href="#cb10-13" tabindex="-1"></a>sacc_dat <span class="ot">&lt;-</span> <span class="fu">map_df</span>(asc_ids, <span class="cf">function</span>(id) {</span>
+<span id="cb10-14"><a href="#cb10-14" tabindex="-1"></a>  <span class="co"># Grab saccade data from each file in the list &amp; append ID</span></span>
+<span id="cb10-15"><a href="#cb10-15" tabindex="-1"></a>  eyedat[[id]]<span class="sc">$</span>sacc <span class="sc">%&gt;%</span></span>
+<span id="cb10-16"><a href="#cb10-16" tabindex="-1"></a>    <span class="fu">add_column</span>(<span class="at">asc_id =</span> id, <span class="at">.before =</span> <span class="dv">1</span>)</span>
+<span id="cb10-17"><a href="#cb10-17" tabindex="-1"></a>})</span></code></pre></div>
+</div>
+<div id="caching-imported-data" class="section level2">
+<h2>Caching Imported Data</h2>
+<p>Because importing a full dataset of high-resolution eye tracking
+recordings can be quite slow, it’s often useful to cache your eye data
+after importing so you don’t have to wait for it all to import again
+next time you run the script. To do this, you can save your eye data
+into an <code>.Rds</code> file that can be quickly loaded back in:</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a>cache_path <span class="ot">&lt;-</span> <span class="st">&quot;./eyedata_cache.Rds&quot;</span></span>
+<span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a></span>
+<span id="cb11-3"><a href="#cb11-3" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">file.exists</span>(cache_path)) {</span>
+<span id="cb11-4"><a href="#cb11-4" tabindex="-1"></a>  <span class="co"># If cached eye data already exists, load that to save time</span></span>
+<span id="cb11-5"><a href="#cb11-5" tabindex="-1"></a>  eyedat <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(cache_path)</span>
+<span id="cb11-6"><a href="#cb11-6" tabindex="-1"></a></span>
+<span id="cb11-7"><a href="#cb11-7" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb11-8"><a href="#cb11-8" tabindex="-1"></a>  <span class="co"># Otherwise, import all raw .asc files and cache them</span></span>
+<span id="cb11-9"><a href="#cb11-9" tabindex="-1"></a>  <span class="co"># [Insert import code that generates eyedat here]</span></span>
+<span id="cb11-10"><a href="#cb11-10" tabindex="-1"></a></span>
+<span id="cb11-11"><a href="#cb11-11" tabindex="-1"></a>  <span class="co"># Save the imported data for next run</span></span>
+<span id="cb11-12"><a href="#cb11-12" tabindex="-1"></a>  <span class="fu">saveRDS</span>(eyedat, <span class="at">file =</span> cache_path)</span>
+<span id="cb11-13"><a href="#cb11-13" tabindex="-1"></a>}</span></code></pre></div>
+<p>Note that if you make any changes to your import code, you will need
+to manually delete the cache file and re-run your import script for any
+changes to take effect!</p>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
